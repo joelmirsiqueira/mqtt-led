@@ -23,49 +23,17 @@
 static const char *TAG = "MQTT_APP";
 static esp_mqtt_client_handle_t g_client = NULL;
 static QueueHandle_t gpio_evt_queue = NULL;
-static bool led_status = false;
+
+void led_set_state(int state)
+{
+    gpio_set_level(LED_PIN, state);
+    esp_mqtt_client_publish(g_client, TOPIC_LED_STATUS, state ? "ON" : "OFF", 0, 1, 0);
+}
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
     if (error_code != 0) {
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
-    }
-}
-
-void led_inverte()
-{
-    led_status = !led_status;
-    gpio_set_level(LED_PIN, led_status);
-
-    const char *status = led_status ? "ON" : "OFF";
-    esp_mqtt_client_publish(g_client, TOPIC_LED_STATUS, status, 0, 1, 0);
-}
-
-static void IRAM_ATTR gpio_isr_handler(void* arg)
-{
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
-}
-
-static void button_task(void* arg)
-{
-    uint32_t io_num;
-    for(;;) {
-        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            if (gpio_get_level(io_num) == 0) {
-                 if (g_client) {
-                    int msg_id = esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "1", 0, 1, 0);
-                    ESP_LOGI(TAG, "Mensagem '1' enviada, msg_id=%d", msg_id);
-                } else {
-                    ESP_LOGE(TAG, "Cliente MQTT não inicializado.");
-                }
-            }
-
-            while(gpio_get_level(io_num) == 0) {
-                vTaskDelay(pdMS_TO_TICKS(100));
-            }
-        }
     }
 }
 
@@ -113,7 +81,13 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         ESP_LOGI(TAG, "TOPIC=%.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "DATA=%.*s", event->data_len, event->data);
-        led_inverte();
+        if (strncmp(event->topic, TOPIC_BUTTON_STATUS, event->topic_len) == 0) {
+            if (strncmp(event->data, "0", event->data_len) == 0) {
+                led_set_state(1);
+            } else if (strncmp(event->data, "1", event->data_len) == 0) {
+                led_set_state(0);
+            }
+        }
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -149,27 +123,43 @@ void mqtt_app_start(void)
     esp_mqtt_client_start(g_client);
 }
 
-void app_main(void)
+void wifi_connect()
 {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(example_connect());
+}
+
+void button_handler()
+{
+    while (1) {
+        if (gpio_get_level(BUTTON_PIN) == 0) {
+            esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "0", 0, 1, 0);
+            while (gpio_get_level(BUTTON_PIN) == 0)
+            {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        } else {
+            esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "1", 0, 1, 0);
+            while (gpio_get_level(BUTTON_PIN) == 1)
+            {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void app_main(void)
+{
+    wifi_connect();
 
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
-
-    gpio_config_t io_conf;
-    io_conf.intr_type = GPIO_INTR_NEGEDGE;
-    io_conf.pin_bit_mask = (1ULL << BUTTON_PIN);
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
-
-    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    xTaskCreate(button_task, "button_task", 2048, NULL, 10, NULL);
-
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(BUTTON_PIN, gpio_isr_handler, (void*) BUTTON_PIN);
+    gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
+    gpio_pullup_en(BUTTON_PIN);
 
     mqtt_app_start();
+
+    xTaskCreate(button_handler, "button_handler", 4096, NULL, 10, NULL);
 }
