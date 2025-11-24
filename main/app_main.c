@@ -5,24 +5,23 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_event.h"
-#include "esp_netif.h"
-#include "protocol_examples_common.h"
 #include "esp_log.h"
 #include "mqtt_client.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
+#include "wifi.h"
 
-#define LED_PIN GPIO_NUM_23
-#define BUTTON_PIN GPIO_NUM_5
+#define LED_PIN             GPIO_NUM_23
+#define BUTTON_PIN          GPIO_NUM_5
+// #define BROKER_URL          CONFIG_BROKER_URL
+#define BROKER_URL          "mqtt://broker.hivemq.com"
 #define TOPIC_SYSTEM_STATUS "ads/embarcado/atividade/system_status"
-#define TOPIC_LED_STATUS "ads/embarcado/atividade/led_status"
+#define TOPIC_LED_STATUS    "ads/embarcado/atividade/led_status"
 #define TOPIC_BUTTON_STATUS "ads/embarcado/atividade/button_status"
 
 static const char *TAG = "MQTT_APP";
 static esp_mqtt_client_handle_t g_client = NULL;
-static QueueHandle_t gpio_evt_queue = NULL;
 
 void led_set_state(int state)
 {
@@ -37,16 +36,6 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-/*
- * @brief Event handler registered to receive MQTT events
- *
- *  This function is called by the MQTT client event loop.
- *
- * @param handler_args user data registered to the event.
- * @param base Event base for the handler(always MQTT Base in this example).
- * @param event_id The id for the received event.
- * @param event_data The data for the event, esp_mqtt_event_handle_t.
- */
 static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32, base, event_id);
@@ -82,9 +71,9 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
         ESP_LOGI(TAG, "TOPIC=%.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "DATA=%.*s", event->data_len, event->data);
         if (strncmp(event->topic, TOPIC_BUTTON_STATUS, event->topic_len) == 0) {
-            if (strncmp(event->data, "0", event->data_len) == 0) {
+            if (event->data_len > 0 && event->data[0] == '0') {
                 led_set_state(1);
-            } else if (strncmp(event->data, "1", event->data_len) == 0) {
+            } else if (event->data_len > 0 && event->data[0] == '1') {
                 led_set_state(0);
             }
         }
@@ -107,13 +96,13 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
 void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt5_cfg = {
-        // .broker.address.uri = CONFIG_BROKER_URL,
-        .broker.address.uri = "mqtt://test.mosquitto.org:1883",
+        .broker.address.uri = BROKER_URL,
+        .broker.address.uri = "mqtt://broker.hivemq.com",
         .session.protocol_ver = MQTT_PROTOCOL_V_5,
         .network.disable_auto_reconnect = true,
         .session.last_will.topic = TOPIC_SYSTEM_STATUS,
         .session.last_will.msg = "OFFLINE",
-        .session.last_will.msg_len = 12,
+        .session.last_will.msg_len = 0,
         .session.last_will.qos = 1,
         .session.last_will.retain = true,
     };
@@ -123,15 +112,7 @@ void mqtt_app_start(void)
     esp_mqtt_client_start(g_client);
 }
 
-void wifi_connect()
-{
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(example_connect());
-}
-
-void button_handler()
+void button_task(void* arg)
 {
     while (1) {
         if (gpio_get_level(BUTTON_PIN) == 0) {
@@ -153,6 +134,14 @@ void button_handler()
 
 void app_main(void)
 {
+    // Inicializa o NVS (necessário para o Wi-Fi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
     wifi_connect();
 
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
@@ -161,5 +150,5 @@ void app_main(void)
 
     mqtt_app_start();
 
-    xTaskCreate(button_handler, "button_handler", 4096, NULL, 10, NULL);
+    xTaskCreate(button_task, "button_handler", 4096, NULL, 10, NULL);
 }
