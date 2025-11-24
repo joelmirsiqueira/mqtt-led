@@ -1,9 +1,3 @@
-/*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -22,6 +16,9 @@
 
 #define LED_PIN GPIO_NUM_23
 #define BUTTON_PIN GPIO_NUM_5
+#define TOPIC_SYSTEM_STATUS "ads/embarcado/atividade/system_status"
+#define TOPIC_LED_STATUS "ads/embarcado/atividade/led_status"
+#define TOPIC_BUTTON_STATUS "ads/embarcado/atividade/button_status"
 
 static const char *TAG = "MQTT_APP";
 static esp_mqtt_client_handle_t g_client = NULL;
@@ -41,7 +38,7 @@ void led_inverte()
     gpio_set_level(LED_PIN, led_status);
 
     const char *status = led_status ? "ON" : "OFF";
-    esp_mqtt_client_publish(g_client, "ads/embarcado/atividade/led_status", status, 0, 1, 0);
+    esp_mqtt_client_publish(g_client, TOPIC_LED_STATUS, status, 0, 1, 0);
 }
 
 static void IRAM_ATTR gpio_isr_handler(void* arg)
@@ -58,7 +55,7 @@ static void button_task(void* arg)
             vTaskDelay(pdMS_TO_TICKS(50));
             if (gpio_get_level(io_num) == 0) {
                  if (g_client) {
-                    int msg_id = esp_mqtt_client_publish(g_client, "ads/embarcado/atividade", "1", 0, 1, 0);
+                    int msg_id = esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "1", 0, 1, 0);
                     ESP_LOGI(TAG, "Mensagem '1' enviada, msg_id=%d", msg_id);
                 } else {
                     ESP_LOGE(TAG, "Cliente MQTT não inicializado.");
@@ -93,15 +90,18 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_subscribe(client, "ads/embarcado/atividade", 0);
+        msg_id = esp_mqtt_client_publish(client, TOPIC_SYSTEM_STATUS, "ONLINE", 0, 1, 0);
+        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+        msg_id = esp_mqtt_client_subscribe(client, TOPIC_BUTTON_STATUS, 0);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        msg_id = esp_mqtt_client_publish(client, TOPIC_SYSTEM_STATUS, "OFFLINE", 0, 1, 0);
+        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-        ESP_LOGI(TAG, "Inscrito com sucesso no tópico ads/embarcado/atividade");
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -137,8 +137,8 @@ void mqtt_app_start(void)
         .broker.address.uri = "mqtt://test.mosquitto.org:1883",
         .session.protocol_ver = MQTT_PROTOCOL_V_5,
         .network.disable_auto_reconnect = true,
-        .session.last_will.topic = "/topic/will",
-        .session.last_will.msg = "i will leave",
+        .session.last_will.topic = TOPIC_SYSTEM_STATUS,
+        .session.last_will.msg = "OFFLINE",
         .session.last_will.msg_len = 12,
         .session.last_will.qos = 1,
         .session.last_will.retain = true,
