@@ -12,8 +12,8 @@
 #include "freertos/task.h"
 #include "wifi.h"
 
-#define LED_PIN             GPIO_NUM_23
-#define BUTTON_PIN          GPIO_NUM_5
+#define LED_PIN             GPIO_NUM_5
+#define BUTTON_PIN          GPIO_NUM_23
 // #define BROKER_URL          CONFIG_BROKER_URL
 #define BROKER_URL          "mqtt://broker.hivemq.com"
 #define TOPIC_SYSTEM_STATUS "ads/embarcado/atividade/system_status"
@@ -97,7 +97,6 @@ void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt5_cfg = {
         .broker.address.uri = BROKER_URL,
-        .broker.address.uri = "mqtt://broker.hivemq.com",
         .session.protocol_ver = MQTT_PROTOCOL_V_5,
         .network.disable_auto_reconnect = true,
         .session.last_will.topic = TOPIC_SYSTEM_STATUS,
