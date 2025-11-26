@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -113,21 +112,18 @@ void mqtt_app_start(void)
 
 void button_task(void* arg)
 {
+    int last_button_state = gpio_get_level(BUTTON_PIN);
     while (1) {
-        if (gpio_get_level(BUTTON_PIN) == 0) {
-            esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "0", 0, 1, 0);
-            while (gpio_get_level(BUTTON_PIN) == 0)
-            {
-                vTaskDelay(pdMS_TO_TICKS(10));
-            }
-        } else {
-            esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, "1", 0, 1, 0);
-            while (gpio_get_level(BUTTON_PIN) == 1)
-            {
-                vTaskDelay(pdMS_TO_TICKS(10));
+        int current_button_state = gpio_get_level(BUTTON_PIN);
+        if (current_button_state != last_button_state) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            current_button_state = gpio_get_level(BUTTON_PIN);
+            if (current_button_state != last_button_state) {
+                last_button_state = current_button_state;
+                esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, current_button_state ? "1" : "0", 0, 1, 0);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
