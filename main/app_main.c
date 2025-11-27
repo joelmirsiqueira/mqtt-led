@@ -13,11 +13,11 @@
 
 #define LED_PIN             GPIO_NUM_5
 #define BUTTON_PIN          GPIO_NUM_23
-// #define BROKER_URL          CONFIG_BROKER_URL
-#define BROKER_URL          "mqtt://broker.hivemq.com"
+#define BROKER_URL          CONFIG_BROKER_URL
 #define TOPIC_SYSTEM_STATUS "ads/embarcado/atividade/system_status"
 #define TOPIC_LED_STATUS    "ads/embarcado/atividade/led_status"
-#define TOPIC_BUTTON_STATUS "ads/embarcado/atividade/button_status"
+#define TOPIC_BUTTON_STATUS_1 "ads/embarcado/atividade/button_status_1"
+#define TOPIC_BUTTON_STATUS_2 "ads/embarcado/atividade/button_status_2"
 
 static const char *TAG = "MQTT_APP";
 static esp_mqtt_client_handle_t g_client = NULL;
@@ -48,7 +48,7 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         msg_id = esp_mqtt_client_publish(client, TOPIC_SYSTEM_STATUS, "ONLINE", 0, 1, 0);
         ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
-        msg_id = esp_mqtt_client_subscribe(client, TOPIC_BUTTON_STATUS, 0);
+        msg_id = esp_mqtt_client_subscribe(client, TOPIC_BUTTON_STATUS_2, 0);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -69,7 +69,7 @@ static void mqtt5_event_handler(void *handler_args, esp_event_base_t base, int32
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         ESP_LOGI(TAG, "TOPIC=%.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "DATA=%.*s", event->data_len, event->data);
-        if (strncmp(event->topic, TOPIC_BUTTON_STATUS, event->topic_len) == 0) {
+        if (strncmp(event->topic, TOPIC_BUTTON_STATUS_2, event->topic_len) == 0) {
             if (event->data_len > 0 && event->data[0] == '0') {
                 led_set_state(1);
             } else if (event->data_len > 0 && event->data[0] == '1') {
@@ -120,7 +120,7 @@ void button_task(void* arg)
             current_button_state = gpio_get_level(BUTTON_PIN);
             if (current_button_state != last_button_state) {
                 last_button_state = current_button_state;
-                esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS, current_button_state ? "1" : "0", 0, 1, 0);
+                esp_mqtt_client_publish(g_client, TOPIC_BUTTON_STATUS_1, current_button_state ? "1" : "0", 0, 1, 0);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(20));
